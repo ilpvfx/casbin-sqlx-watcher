@@ -23,7 +23,6 @@
   services.postgres = {
     enable = true;
     package = pkgs.postgresql_17;
-    initialDatabases = [{ name = "casbin-sqlx-watcher"; }];
     listen_addresses = "127.0.0.1";
     extensions = extensions: [];
     initialScript = ''
@@ -61,6 +60,8 @@
     echo "Running tests"
     git --version | grep --color=auto "${pkgs.git.version}"
   '';
+
+  dotenv.enable = true;
 
   # https://devenv.sh/git-hooks/
   # git-hooks.hooks.shellcheck.enable = true;
