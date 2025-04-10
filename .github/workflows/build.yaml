@@ -48,6 +48,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
       - name: Build
+        env:
+          SQLX_OFFLINE: 1
         run: |
           cargo test
           cargo build
