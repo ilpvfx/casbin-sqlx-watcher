@@ -1,0 +1,17 @@
+[package]
+name = "casbin-sqlx-watcher"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+casbin = { version="2", features = ["watcher"] }
+log = "0"
+serde = "1"
+serde_json = "1"
+sqlx = { version="0", features=["postgres", "runtime-tokio"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+sqlx-adapter = {version="1", features=["runtime-tokio-native-tls"]}
