@@ -2,6 +2,9 @@
 name = "casbin-sqlx-watcher"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "Casbin watcher implementation using sqlx and postgres"
+repository = "https://github.com/ilpvfx/casbin-sqlx-watcher"
 
 [dependencies]
 casbin = { version="2", features = ["watcher"] }
