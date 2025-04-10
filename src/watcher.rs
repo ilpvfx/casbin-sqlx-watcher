@@ -353,8 +353,8 @@ mod tests {
         });
         (watcher, handle, db)
     }
-    #[tokio::test]
-    async fn test_should_notify_and_listen_basic() {
+    #[sqlx::test(fixtures("base"))]
+    async fn test_should_notify_and_listen_basic(_: PgPool) {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
@@ -380,8 +380,8 @@ mod tests {
         assert!(found);
     }
 
-    #[tokio::test]
-    async fn test_should_ignore_own_messages() {
+    #[sqlx::test(fixtures("base"))]
+    async fn test_should_ignore_own_messages(_: PgPool) {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
@@ -402,8 +402,8 @@ mod tests {
         assert!(found.is_err());
     }
 
-    #[tokio::test]
-    async fn test_should_notify_and_listen_large() {
+    #[sqlx::test(fixtures("base"))]
+    async fn test_should_notify_and_listen_large(_: PgPool) {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
