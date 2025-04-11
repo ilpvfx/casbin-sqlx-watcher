@@ -1,4 +1,8 @@
 # Casbin Sqlx Watcher
+![docs.rs](https://img.shields.io/docsrs/casbin-sqlx-watcher)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/ilpvfx/casbin-sqlx-watcher/build.yaml)
+
+
 
 Supported databases: Postgres
 
