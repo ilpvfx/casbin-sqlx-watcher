@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use sqlx::postgres::PgListener;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+pub type Callback = Box<dyn FnMut(String) + Send + Sync>;
 
 /// A sqlx based Watcher for casbin policy changes.
 ///
@@ -42,7 +43,7 @@ use tokio::sync::RwLock;
 ///    });
 ///
 ///
-///    watcher.set_update_callback(Box::new(|| {
+///    watcher.set_update_callback(Box::new(|_event: String| {
 ///       println!("casbin policy changed");
 ///    }));
 ///
@@ -57,13 +58,9 @@ use tokio::sync::RwLock;
 pub struct SqlxWatcher {
     db: PgPool,
     /// The channel sender to send the callback to.
-    tx: Arc<RwLock<tokio::sync::mpsc::Sender<Box<dyn FnMut() + Send + Sync>>>>,
+    tx: Arc<RwLock<tokio::sync::mpsc::Sender<Callback>>>,
     /// The channel receiver to read the callback from.
-    rc: Arc<RwLock<tokio::sync::mpsc::Receiver<Box<dyn FnMut() + Send + Sync>>>>,
-    /// The last message that was received.
-    /// This is in order to work around the limitation of the Watcher trait not providing the
-    /// payload to the callback.
-    last_message: Arc<RwLock<PolicyChange>>,
+    rc: Arc<RwLock<tokio::sync::mpsc::Receiver<Callback>>>,
     /// The instance id of this watcher. Used to ignore our own messages.
     instance_id: String,
     /// The channel to listen and notify on.
@@ -97,7 +94,6 @@ impl SqlxWatcher {
             db,
             tx: Arc::new(RwLock::new(tx)),
             rc: Arc::new(RwLock::new(rc)),
-            last_message: Arc::new(RwLock::new(PolicyChange::None)),
             instance_id: uuid::Uuid::new_v4().to_string(),
             _channel: DEFAULT_NOTIFY_CHANNEL.to_string(),
         }
@@ -139,7 +135,7 @@ impl SqlxWatcher {
             enforcer.write().await.load_policy().await?;
         }
 
-        let mut cb: Box<dyn FnMut() + Send + Sync> = Box::new(|| {
+        let mut cb: Box<dyn FnMut(String) + Send + Sync> = Box::new(|_event: String| {
             let cloned_enforcer = enforcer.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = cloned_enforcer.write().await.load_policy().await {
@@ -157,7 +153,9 @@ impl SqlxWatcher {
                             if let Ok(n) = n {
                                 if let Some(notification) = n {
 
-                                    if notification.payload().is_empty() {
+                                    let policy_str = notification.payload();
+
+                                    if policy_str.is_empty() {
                                         log::warn!("empty casbin policy change notification, doing full policy reload as fallback");
                                         if let Err(e) = enforcer.write().await.load_policy().await {
                                             log::error!("error while trying to reload whole policy: {}", e);
@@ -165,16 +163,15 @@ impl SqlxWatcher {
                                         continue;
                                     }
 
-                                    log::info!("received casbin policy change notification: {}", notification.payload());
+                                    log::info!("received casbin policy change notification: {}", policy_str);
 
-                                    let policy_change = serde_json::from_str::<PolicyChange>(notification.payload());
+                                    let policy_change = serde_json::from_str::<PolicyChange>(policy_str);
 
                                     let result: Result<()> = match policy_change {
                                         Ok(change) => {
                                             match self.is_own_message(&change) {
                                                 false => {
-                                                    *self.last_message.write().await = change;
-                                                    cb();
+                                                    cb(policy_str.to_string());
                                                     Ok(())
                                                 },
                                                 true => Ok(())
@@ -277,7 +274,7 @@ impl PolicyChange {
 }
 
 impl Watcher for SqlxWatcher {
-    fn set_update_callback(&mut self, cb: Box<dyn FnMut() + Send + Sync>) {
+    fn set_update_callback(&mut self, cb: Callback) {
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
             if let Err(e) = tx.write().await.send(cb).await {
@@ -328,7 +325,7 @@ mod tests {
     use tokio::task::JoinHandle;
 
     async fn setup_listener(
-        cb: Box<dyn FnMut() + Send + Sync>,
+        cb: Box<dyn FnMut(String) + Send + Sync>,
     ) -> (SqlxWatcher, JoinHandle<()>, PgPool) {
         let db = PgPool::connect(env::var("DATABASE_URL").unwrap().as_str())
             .await
@@ -358,7 +355,7 @@ mod tests {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
-        let (watcher, handle, db) = setup_listener(Box::new(move || {
+        let (watcher, handle, db) = setup_listener(Box::new(move |_event: String| {
             println!("casbin policy changed");
             let tx = tx_msg.clone();
             tokio::task::spawn(async move {
@@ -385,7 +382,7 @@ mod tests {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
-        let (mut watcher, handle, _db) = setup_listener(Box::new(move || {
+        let (mut watcher, handle, _db) = setup_listener(Box::new(move |_event: String| {
             println!("casbin policy changed");
             let tx = tx_msg.clone();
             tokio::task::spawn(async move {
@@ -407,7 +404,7 @@ mod tests {
         // create a channel to notify on messages
         let (tx_msg, mut rx_msg) = tokio::sync::mpsc::channel::<bool>(5);
 
-        let (watcher, handle, db) = setup_listener(Box::new(move || {
+        let (watcher, handle, db) = setup_listener(Box::new(move |_event: String| {
             println!("casbin policy changed");
             let tx = tx_msg.clone();
             tokio::task::spawn(async move {
