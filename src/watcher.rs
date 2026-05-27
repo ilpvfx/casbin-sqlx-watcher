@@ -1,4 +1,4 @@
-use casbin::{CoreApi, Enforcer, EventData, Watcher};
+use casbin::{CoreApi, EventData, Watcher};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::postgres::PgListener;
@@ -126,7 +126,7 @@ impl SqlxWatcher {
     ///
     /// This listens to the postgres notification channel for casbin policy changes.
     /// It also listens for updates to the callback function.
-    pub async fn listen(&mut self, enforcer: Arc<RwLock<Enforcer>>) -> Result<()> {
+    pub async fn listen(&mut self, enforcer: Arc<RwLock<impl CoreApi + 'static>>) -> Result<()> {
         let mut listener = PgListener::connect_with(&self.db).await?;
         listener.listen(&self._channel).await?;
 
@@ -139,12 +139,12 @@ impl SqlxWatcher {
             let cloned_enforcer = enforcer.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = cloned_enforcer.write().await.load_policy().await {
-                    log::error!("failed to reload policy: {}", err);
+                    tracing::error!("failed to reload policy: {}", err);
                 }
             });
         });
 
-        log::info!("casbin sqlx watcher started");
+        tracing::info!("casbin sqlx watcher started");
 
         loop {
             let mut rc = self.rc.write().await;
@@ -156,14 +156,14 @@ impl SqlxWatcher {
                                     let policy_str = notification.payload();
 
                                     if policy_str.is_empty() {
-                                        log::warn!("empty casbin policy change notification, doing full policy reload as fallback");
+                                        tracing::warn!("empty casbin policy change notification, doing full policy reload as fallback");
                                         if let Err(e) = enforcer.write().await.load_policy().await {
-                                            log::error!("error while trying to reload whole policy: {}", e);
+                                            tracing::error!("error while trying to reload whole policy: {}", e);
                                         }
                                         continue;
                                     }
 
-                                    log::info!("received casbin policy change notification: {}", policy_str);
+                                    tracing::info!("received casbin policy change notification: {}", policy_str);
 
                                     let policy_change = serde_json::from_str::<PolicyChange>(policy_str);
 
@@ -179,7 +179,7 @@ impl SqlxWatcher {
 
                                         },
                                         Err(orig_error) => {
-                                            log::info!("doing full policy reload as fallback");
+                                            tracing::info!("doing full policy reload as fallback");
                                             if let Err(subsequent_error) = enforcer.write().await.load_policy().await {
                                                 Err(Error::General(format!("failed to apply policy {}\n    subsequent fallback reload error: {}", orig_error, subsequent_error)))
                                             } else {
@@ -189,19 +189,19 @@ impl SqlxWatcher {
                                     };
 
                                     if let Err(e) = result {
-                                        log::error!("error while applying casbin policy change: {}", e);
+                                        tracing::error!("error while applying casbin policy change: {}", e);
                                     }
 
 
                                 }
 
                             } else {
-                                log::error!("casbin listener connection lost, auto reconnecting");
+                                tracing::error!("casbin listener connection lost, auto reconnecting");
                             }
                         },
                 new_cb = rc.recv() => {
                     if let Some(new_cb) = new_cb {
-                        log::info!("casbin watcher callback set");
+                        tracing::info!("casbin watcher callback set");
                         cb = new_cb;
                     }
                 },
@@ -278,7 +278,7 @@ impl Watcher for SqlxWatcher {
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
             if let Err(e) = tx.write().await.send(cb).await {
-                log::error!("failed to send casbin watcher callback: {}", e);
+                tracing::error!("failed to send casbin watcher callback: {}", e);
             }
         });
     }
@@ -290,7 +290,7 @@ impl Watcher for SqlxWatcher {
 
         // if > 8000 bytes we resort to a full reload
         let serialized = if serialized.len() > NOTIFY_MAX_BYTES {
-            log::warn!("policy change too large, resorting to full reload");
+            tracing::warn!("policy change too large, resorting to full reload");
             serde_json::to_string(&PolicyChange::LoadPolicy(self.instance_id.clone())).unwrap()
         } else {
             serialized
@@ -309,7 +309,7 @@ impl Watcher for SqlxWatcher {
             .execute(&db)
             .await
             {
-                log::error!("failed to notify casbin policy change: {}", e);
+                tracing::error!("failed to notify casbin policy change: {}", e);
             }
         });
     }
